@@ -8,12 +8,12 @@ on:
     branches:
       - main
       - ci/test-macos
-    pull_request:
-      branches:
-        - main
+  pull_request:
+    branches:
+      - main
 
 env:
-  UV_SYSTEM_PYTHON: 1
+  SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'pull_request' && 'READ_ONLY' || 'READ_WRITE' }}
 
 permissions:
   contents: read
@@ -30,10 +30,17 @@ jobs:
       - uses: astral-sh/setup-uv@v8.3.2
         with:
           cache-python: "true"
+          activate-environment: "true"
           python-version: ${{ matrix.python-version }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin aarch64-apple-darwin
+      - name: Configure sccache
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
+            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
       - name: Build wheels - x86_64
         uses: PyO3/maturin-action@v1
         env:
@@ -56,7 +63,7 @@ jobs:
         shell: bash
         run: |
           uv pip install --force-reinstall dist/robyn*arm64.whl
-          cd ~ && python -c 'import robyn'
+          cd ~ && python -c "import robyn"
 
   windows:
     runs-on: ${{ matrix.runner }}
@@ -80,8 +87,15 @@ jobs:
       - uses: astral-sh/setup-uv@v8.3.2
         with:
           cache-python: "true"
+          activate-environment: "true"
           python-version: ${{ matrix.python-version }}
       - uses: dtolnay/rust-toolchain@stable
+      - name: Configure sccache
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
+            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         env:
@@ -95,7 +109,7 @@ jobs:
         shell: bash
         run: |
           uv pip install --force-reinstall dist/robyn*.whl
-          cd ~ && python -c 'import robyn'
+          cd ~ && python -c "import robyn"
 
   manylinux:
     runs-on: ${{ matrix.runner }}
@@ -111,6 +125,12 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+      - name: Configure sccache
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
+            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
       - name: Build Wheels
         uses: PyO3/maturin-action@v1
         env:
@@ -121,7 +141,10 @@ jobs:
           target: ${{ matrix.target }}
           args: --zig -i python${{ matrix.python-version }} --release --out dist
           container: quay.io/pypa/manylinux_2_28_${{ matrix.target }}:latest
-          docker-options: -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
+          docker-options: >-
+            -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
+            -e ACTIONS_RESULTS_URL -e ACTIONS_RUNTIME_TOKEN
+            -e SCCACHE_GHA_RW_MODE
           manylinux: manylinux_2_28
       - name: Test wheel
         run: |
@@ -142,6 +165,12 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+      - name: Configure sccache
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
+            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
       - name: Build Wheels
         uses: PyO3/maturin-action@v1
         env:
@@ -152,7 +181,10 @@ jobs:
           target: ${{ matrix.target }}
           args: --zig -i python${{ matrix.python-version }} --release --out dist
           container: quay.io/pypa/musllinux_1_2_${{ matrix.target }}:latest
-          docker-options: -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
+          docker-options: >-
+            -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
+            -e ACTIONS_RESULTS_URL -e ACTIONS_RUNTIME_TOKEN
+            -e SCCACHE_GHA_RW_MODE
           manylinux: musllinux_1_2
       - name: Test wheel
         run: |
