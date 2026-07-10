@@ -1,0 +1,36 @@
+name: Diagnostic Platform Machine
+
+on:
+  push:
+    branches:
+      - ci/check-platform
+
+jobs:
+  host-platforms:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-latest, macos-15-intel]
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Print Platform Info
+        shell: bash
+        run: |
+          python -c "import platform, sys; print('Platform System:', platform.system()); print('Platform Machine:', platform.machine()); print('Sys Platform:', sys.platform)"
+
+  docker-platforms:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/386, linux/arm64, linux/arm/v7]
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Print Platform Info inside Docker
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} python:3.12-slim python -c "import platform, sys; print('Docker Platform:', '${{ matrix.platform }}'); print('Platform System:', platform.system()); print('Platform Machine:', platform.machine()); print('Sys Platform:', sys.platform)"
