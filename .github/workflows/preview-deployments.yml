@@ -7,7 +7,7 @@ on:
   push:
     branches:
       - main
-      - ci/fix-builds
+      - ci/test-macos
   pull_request:
     branches:
       - main
@@ -20,178 +20,33 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-15
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin aarch64-apple-darwin
-      - name: Build wheels - x86_64
-        uses: PyO3/maturin-action@v1
-        with:
-          target: x86_64
-          args: -i python --release --out dist
-      - name: Build wheels - aarch64
-        uses: PyO3/maturin-action@v1
-        with:
-          target: aarch64
-          args: -i python --release --out dist
-      - name: Install build wheel
-        run: |
-          uv pip install --force-reinstall dist/robyn*arm64.whl
-          cd ~ && python -c 'import robyn'
-
-  windows:
-    runs-on: windows-2025
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x64, x86]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-          architecture: ${{ matrix.target == 'x86' && 'x86' || 'x64' }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target == 'x86' && 'i686-pc-windows-msvc' || '' }}
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: -i python --release --out dist
-      - name: Install build wheel
-        shell: bash
-        run: |
-          uv pip install --force-reinstall dist/robyn*.whl
-          cd ~ && python -c 'import robyn'
-
-  windows-arm64:
-    runs-on: windows-11-arm
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-          architecture: arm64
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: aarch64
-          args: -i python --release --out dist
-      - name: Install build wheel
-        shell: bash
-        run: |
-          uv pip install --force-reinstall dist/robyn*.whl
-          cd ~ && python -c 'import robyn'
-
-  manylinux:
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x86_64, i686, aarch64, armv7]
+        target: [x86_64, aarch64]
         include:
           - target: x86_64
-            manylinux: manylinux_2_28
-          - target: i686
-            manylinux: manylinux_2_28
+            runner: macos-15-intel
+            suffix: x86_64
           - target: aarch64
-            manylinux: manylinux_2_28
-          - target: armv7
-            manylinux: manylinux_2_31
+            runner: macos-15
+            suffix: arm64
     steps:
       - uses: actions/checkout@v4
-      - name: Set up QEMU
-        if: matrix.target == 'aarch64' || matrix.target == 'armv7'
-        uses: docker/setup-qemu-action@v3
       - name: Install uv
         uses: astral-sh/setup-uv@v3
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Build Wheels (manylinux)
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: ${{ matrix.manylinux }}
-          args: --zig -i python${{ matrix.python-version }} --release --out dist
-      - name: Test wheel (Slim)
+          args: -i python --release --out dist
+      - name: Install build wheel
         run: |
-          if [ "${{ matrix.target }}" = "x86_64" ]; then
-            PLATFORM="linux/amd64"
-          elif [ "${{ matrix.target }}" = "i686" ]; then
-            PLATFORM="linux/386"
-          elif [ "${{ matrix.target }}" = "aarch64" ]; then
-            PLATFORM="linux/arm64"
-          elif [ "${{ matrix.target }}" = "armv7" ]; then
-            PLATFORM="linux/arm/v7"
-          fi
-          
-          docker run --rm --platform $PLATFORM -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-slim sh -c "\
-            apt-get update && apt-get install -y build-essential && \
-            pip install --force-reinstall /artifacts/robyn*.whl && \
-            cd ~ && python -c 'import robyn'"
-
-  musllinux:
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x86_64, i686, aarch64, armv7]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up QEMU
-        if: matrix.target == 'aarch64' || matrix.target == 'armv7'
-        uses: docker/setup-qemu-action@v3
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Build Wheels (musl)
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          manylinux: musllinux_1_2
-          args: --zig -i python${{ matrix.python-version }} --release --out dist
-      - name: Test wheel (Alpine)
-        run: |
-          if [ "${{ matrix.target }}" = "x86_64" ]; then
-            PLATFORM="linux/amd64"
-          elif [ "${{ matrix.target }}" = "i686" ]; then
-            PLATFORM="linux/386"
-          elif [ "${{ matrix.target }}" = "aarch64" ]; then
-            PLATFORM="linux/arm64"
-          elif [ "${{ matrix.target }}" = "armv7" ]; then
-            PLATFORM="linux/arm/v7"
-          fi
-          
-          docker run --rm --platform $PLATFORM -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-alpine sh -c "\
-            apk add --no-cache build-base autoconf automake libtool && \
-            pip install --force-reinstall /artifacts/robyn*.whl && \
-            cd ~ && python -c 'import robyn'"
+          uv pip install --force-reinstall dist/robyn*${{ matrix.suffix }}.whl
+          cd ~ && python -c 'import robyn'

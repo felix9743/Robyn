@@ -5,13 +5,7 @@ on:
     tags:
       - v*
   workflow_dispatch:
-    inputs:
-      enable_linux_cross:
-        description: 'Enable Linux cross-compilation (ARM64/ARMv7)'
-        required: false
-        default: true
-        type: boolean
-  
+
 env:
   UV_SYSTEM_PYTHON: 1
 
@@ -20,11 +14,19 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-15
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        target: [x86_64, aarch64]
+        include:
+          - target: x86_64
+            runner: macos-15-intel
+            suffix: x86_64
+          - target: aarch64
+            runner: macos-15
+            suffix: arm64
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
@@ -33,21 +35,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin aarch64-apple-darwin
-      - name: Build wheels - x86_64
+      - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: x86_64
-          args: -i python --release --out dist
-      - name: Build wheels - aarch64
-        uses: PyO3/maturin-action@v1
-        with:
-          target: aarch64
+          target: ${{ matrix.target }}
           args: -i python --release --out dist
       - name: Install build wheel
         run: |
-          uv pip install --force-reinstall dist/robyn*arm64.whl
+          uv pip install --force-reinstall dist/robyn*${{ matrix.suffix }}.whl
           cd ~ && python -c 'import robyn'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
