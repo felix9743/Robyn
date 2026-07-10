@@ -131,19 +131,22 @@ def init_processpool(
 
 
 def initialize_event_loop():
-    if sys.platform.startswith("win32") or sys.platform.startswith("linux-cross"):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop
-    else:
-        # uv loop doesn't support windows or arm machines at the moment
-        # but uv loop is much faster than native asyncio
+    # Import uvloop or winloop if available
+    try:
         import uvloop
+    except ImportError:
+        try: import winloop as uvloop
+        except pass
 
-        uvloop.install()
+    # Create event loop from the uvloop / winloop if available else use default asyncio event loop
+    if "uvloop" in dir():
         loop = uvloop.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop
+    else:
+        loop = asyncio.new_event_loop()
+
+    # Set the event loop for the current process and return it
+    asyncio.set_event_loop(loop)
+    return loop
 
 
 def spawn_process(
