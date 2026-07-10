@@ -35,19 +35,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin aarch64-apple-darwin
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: macos-${{ matrix.python-version }}
       - name: Build wheels - x86_64
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
+          sccache: 'true'
           args: -i python --release --out dist
       - name: Build wheels - aarch64
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
+          sccache: 'true'
           args: -i python --release --out dist
       - name: Install build wheel
         run: |
@@ -81,14 +79,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.architecture }}
       - uses: dtolnay/rust-toolchain@stable
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: windows-${{ matrix.target }}-${{ matrix.python-version }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target == 'arm64' && 'aarch64' || matrix.target }}
+          sccache: 'true'
           args: -i python --release --out dist
       - name: Install build wheel
         shell: bash
@@ -117,10 +112,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: manylinux-${{ matrix.target }}-${{ matrix.python-version }}
       - name: Build Wheels (manylinux)
         uses: PyO3/maturin-action@v1
         with:
@@ -156,10 +147,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: musllinux-${{ matrix.target }}-${{ matrix.python-version }}
       - name: Build Wheels (musl)
         uses: PyO3/maturin-action@v1
         with:
@@ -170,6 +157,6 @@ jobs:
       - name: Test wheel (Alpine)
         run: |
           docker run --rm --platform ${{ matrix.platform }} -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-alpine sh -c "\
-            apk add --no-cache build-base autoconf automake libtool && \
+            apk add build-base autoconf automake libtool && \
             pip install --force-reinstall /artifacts/robyn*.whl && \
             cd ~ && python -c 'import robyn'"
