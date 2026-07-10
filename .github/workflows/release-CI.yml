@@ -130,6 +130,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: manylinux_2_28
+          sccache: 'true'
           args: --zig -i python${{ matrix.python-version }} --release --out dist
       - name: Test wheel (Slim)
         run: |
@@ -173,6 +174,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: musllinux_1_2
+          sccache: 'true'
           args: --zig -i python${{ matrix.python-version }} --release --out dist
       - name: Test wheel (Alpine)
         run: |
