@@ -136,7 +136,7 @@ def initialize_event_loop():
         import uvloop
     except ImportError:
         try: import winloop as uvloop
-        except pass
+        except: pass
 
     # Create event loop from the uvloop / winloop if available else use default asyncio event loop
     if "uvloop" in dir():
