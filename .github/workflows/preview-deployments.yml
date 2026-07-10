@@ -39,7 +39,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           SCCACHE_GHA_CACHE_TO: sccache-macos-x86_64-${{ matrix.python-version }}
-          SCCACHE_GHA_CACHE_FROM: sccache-macos-x86_64-${{ matrix.python-version }}
+          SCCACHE_GHA_CACHE_FROM: sccache-macos-x86_64-
         with:
           target: x86_64
           sccache: 'true'
@@ -48,7 +48,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           SCCACHE_GHA_CACHE_TO: sccache-macos-aarch64-${{ matrix.python-version }}
-          SCCACHE_GHA_CACHE_FROM: sccache-macos-aarch64-${{ matrix.python-version }}
+          SCCACHE_GHA_CACHE_FROM: sccache-macos-aarch64-
         with:
           target: aarch64
           sccache: 'true'
@@ -89,7 +89,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           SCCACHE_GHA_CACHE_TO: sccache-windows-${{ matrix.target }}-${{ matrix.python-version }}
-          SCCACHE_GHA_CACHE_FROM: sccache-windows-${{ matrix.target }}-${{ matrix.python-version }}
+          SCCACHE_GHA_CACHE_FROM: sccache-windows-${{ matrix.target }}-
         with:
           target: ${{ matrix.target == 'arm64' && 'aarch64' || matrix.target }}
           sccache: 'true'
@@ -123,13 +123,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Build Wheels (manylinux)
         uses: PyO3/maturin-action@v1
-        env:
-          SCCACHE_GHA_CACHE_TO: sccache-manylinux-${{ matrix.target }}-${{ matrix.python-version }}
-          SCCACHE_GHA_CACHE_FROM: sccache-manylinux-${{ matrix.target }}-${{ matrix.python-version }}
         with:
           target: ${{ matrix.target }}
           manylinux: manylinux_2_28
           sccache: 'true'
+          docker-options: >-
+            -e SCCACHE_GHA_CACHE_TO=sccache-manylinux-${{ matrix.target }}-${{ matrix.python-version }}
+            -e SCCACHE_GHA_CACHE_FROM=sccache-manylinux-${{ matrix.target }}-
           args: --zig -i python${{ matrix.python-version }} --release --out dist
       - name: Test wheel (Slim)
         run: |
@@ -161,13 +161,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Build Wheels (musl)
         uses: PyO3/maturin-action@v1
-        env:
-          SCCACHE_GHA_CACHE_TO: sccache-musllinux-${{ matrix.target }}-${{ matrix.python-version }}
-          SCCACHE_GHA_CACHE_FROM: sccache-musllinux-${{ matrix.target }}-${{ matrix.python-version }}
         with:
           target: ${{ matrix.target }}
           manylinux: musllinux_1_2
           sccache: 'true'
+          docker-options: >-
+            -e SCCACHE_GHA_CACHE_TO=sccache-musllinux-${{ matrix.target }}-${{ matrix.python-version }}
+            -e SCCACHE_GHA_CACHE_FROM=sccache-musllinux-${{ matrix.target }}-
           args: --zig -i python${{ matrix.python-version }} --release --out dist
       - name: Test wheel (Alpine)
         run: |
