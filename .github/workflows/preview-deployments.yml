@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+      - ci/fix-builds
   pull_request:
     branches:
       - main
@@ -21,6 +22,7 @@ jobs:
   macos:
     runs-on: macos-15
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
@@ -45,15 +47,16 @@ jobs:
           args: -i python --release --out dist
       - name: Install build wheel
         run: |
-          uv pip install --force-reinstall dist/robyn*aarch64*.whl
+          uv pip install --force-reinstall dist/robyn*arm64.whl
           cd ~ && python -c 'import robyn'
 
   windows:
     runs-on: windows-2025
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x64, x86, arm64]
+        target: [x64, x86]
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
@@ -62,25 +65,52 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: ${{ matrix.target == 'arm64' && 'x64' || (matrix.target == 'x86' && 'x86' || 'x64') }}
+          architecture: ${{ matrix.target == 'x86' && 'x86' || 'x64' }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target == 'arm64' && 'aarch64-pc-windows-msvc' || (matrix.target == 'x86' && 'i686-pc-windows-msvc' || '') }}
+          targets: ${{ matrix.target == 'x86' && 'i686-pc-windows-msvc' || '' }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: -i python --release --out dist
       - name: Install build wheel
-        if: matrix.target != 'arm64'
         shell: bash
         run: |
           uv pip install --force-reinstall dist/robyn*.whl
           cd ~ && python -c 'import robyn'
 
-  linux-manylinux:
+  windows-arm64:
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: arm64
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: -i python --release --out dist
+      - name: Install build wheel
+        shell: bash
+        run: |
+          uv pip install --force-reinstall dist/robyn*.whl
+          cd ~ && python -c 'import robyn'
+
+  manylinux:
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         target: [x86_64, i686, aarch64, armv7]
@@ -108,8 +138,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
-          zig: true
-          args: -i python${{ matrix.python-version }} --release --out dist
+          args: --zig -i python${{ matrix.python-version }} --release --out dist
       - name: Test wheel (Slim)
         run: |
           if [ "${{ matrix.target }}" = "x86_64" ]; then
@@ -123,13 +152,14 @@ jobs:
           fi
           
           docker run --rm --platform $PLATFORM -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-slim sh -c "\
-            apt-get update && apt-get install -y gcc libc-dev && \
+            apt-get update && apt-get install -y build-essential && \
             pip install --force-reinstall /artifacts/robyn*.whl && \
             cd ~ && python -c 'import robyn'"
 
-  linux-musl:
+  musllinux:
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         target: [x86_64, i686, aarch64, armv7]
@@ -148,8 +178,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: musllinux_1_2
-          zig: true
-          args: -i python${{ matrix.python-version }} --release --out dist
+          args: --zig -i python${{ matrix.python-version }} --release --out dist
       - name: Test wheel (Alpine)
         run: |
           if [ "${{ matrix.target }}" = "x86_64" ]; then
@@ -163,6 +192,6 @@ jobs:
           fi
           
           docker run --rm --platform $PLATFORM -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-alpine sh -c "\
-            apk add --no-cache gcc musl-dev && \
+            apk add --no-cache build-base autoconf automake libtool && \
             pip install --force-reinstall /artifacts/robyn*.whl && \
             cd ~ && python -c 'import robyn'"
