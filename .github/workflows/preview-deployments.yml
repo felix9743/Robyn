@@ -8,9 +8,9 @@ on:
     branches:
       - main
       - ci/test-macos
-  pull_request:
-    branches:
-      - main
+    pull_request:
+      branches:
+        - main
 
 env:
   UV_SYSTEM_PYTHON: 1
@@ -27,10 +27,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v8.3.2
         with:
+          cache-python: "true"
           python-version: ${{ matrix.python-version }}
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -38,22 +37,23 @@ jobs:
       - name: Build wheels - x86_64
         uses: PyO3/maturin-action@v1
         env:
-          SCCACHE_GHA_CACHE_TO: sccache-macos-x86_64-${{ matrix.python-version }}
+          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && 'sccache-macos-x86_64-3.12' || '' }}
           SCCACHE_GHA_CACHE_FROM: sccache-macos-x86_64-
         with:
+          sccache: "true"
           target: x86_64
-          sccache: 'true'
           args: -i python --release --out dist
       - name: Build wheels - aarch64
         uses: PyO3/maturin-action@v1
         env:
-          SCCACHE_GHA_CACHE_TO: sccache-macos-aarch64-${{ matrix.python-version }}
+          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && 'sccache-macos-aarch64-3.12' || '' }}
           SCCACHE_GHA_CACHE_FROM: sccache-macos-aarch64-
         with:
+          sccache: "true"
           target: aarch64
-          sccache: 'true'
           args: -i python --release --out dist
-      - name: Install build wheel
+      - name: Test wheel
+        shell: bash
         run: |
           uv pip install --force-reinstall dist/robyn*arm64.whl
           cd ~ && python -c 'import robyn'
@@ -77,24 +77,21 @@ jobs:
             architecture: arm64
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install Python
-        uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v8.3.2
         with:
+          cache-python: "true"
           python-version: ${{ matrix.python-version }}
-          architecture: ${{ matrix.architecture }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         env:
-          SCCACHE_GHA_CACHE_TO: sccache-windows-${{ matrix.target }}-${{ matrix.python-version }}
+          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && format('sccache-windows-{0}-3.12', matrix.target) || '' }}
           SCCACHE_GHA_CACHE_FROM: sccache-windows-${{ matrix.target }}-
         with:
+          sccache: "true"
           target: ${{ matrix.target == 'arm64' && 'aarch64' || matrix.target }}
-          sccache: 'true'
           args: -i python --release --out dist
-      - name: Install build wheel
+      - name: Test wheel
         shell: bash
         run: |
           uv pip install --force-reinstall dist/robyn*.whl
@@ -110,33 +107,26 @@ jobs:
         include:
           - target: x86_64
             runner: ubuntu-24.04
-            platform: linux/amd64
           - target: aarch64
             runner: ubuntu-24.04-arm
-            platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Build Wheels (manylinux)
+      - name: Build Wheels
         uses: PyO3/maturin-action@v1
+        env:
+          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && format('sccache-manylinux-{0}-3.12', matrix.target) || '' }}
+          SCCACHE_GHA_CACHE_FROM: sccache-manylinux-${{ matrix.target }}-
         with:
+          sccache: "true"
           target: ${{ matrix.target }}
-          manylinux: manylinux_2_28
-          sccache: 'true'
-          docker-options: >-
-            -e SCCACHE_GHA_CACHE_TO=sccache-manylinux-${{ matrix.target }}-${{ matrix.python-version }}
-            -e SCCACHE_GHA_CACHE_FROM=sccache-manylinux-${{ matrix.target }}-
           args: --zig -i python${{ matrix.python-version }} --release --out dist
-      - name: Test wheel (Slim)
+          container: quay.io/pypa/manylinux_2_28_${{ matrix.target }}:latest
+          docker-options: -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
+          manylinux: manylinux_2_28
+      - name: Test wheel
         run: |
-          docker run --rm --platform ${{ matrix.platform }} -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-slim sh -c "\
-            apt-get update && apt-get install -y build-essential && \
-            pip install --force-reinstall /artifacts/robyn*.whl && \
-            cd ~ && python -c 'import robyn'"
+          docker run --rm -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-slim sh -c "\
+            pip install --force-reinstall /artifacts/robyn*.whl && python -c 'import robyn'"
 
   musllinux:
     runs-on: ${{ matrix.runner }}
@@ -148,30 +138,23 @@ jobs:
         include:
           - target: x86_64
             runner: ubuntu-24.04
-            platform: linux/amd64
           - target: aarch64
             runner: ubuntu-24.04-arm
-            platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Build Wheels (musl)
+      - name: Build Wheels
         uses: PyO3/maturin-action@v1
+        env:
+          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && format('sccache-musllinux-{0}-3.12', matrix.target) || '' }}
+          SCCACHE_GHA_CACHE_FROM: sccache-musllinux-${{ matrix.target }}-
         with:
+          sccache: "true"
           target: ${{ matrix.target }}
-          manylinux: musllinux_1_2
-          sccache: 'true'
-          docker-options: >-
-            -e SCCACHE_GHA_CACHE_TO=sccache-musllinux-${{ matrix.target }}-${{ matrix.python-version }}
-            -e SCCACHE_GHA_CACHE_FROM=sccache-musllinux-${{ matrix.target }}-
           args: --zig -i python${{ matrix.python-version }} --release --out dist
-      - name: Test wheel (Alpine)
+          container: quay.io/pypa/musllinux_1_2_${{ matrix.target }}:latest
+          docker-options: -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
+          manylinux: musllinux_1_2
+      - name: Test wheel
         run: |
-          docker run --rm --platform ${{ matrix.platform }} -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-alpine sh -c "\
-            apk add build-base autoconf automake libtool && \
-            pip install --force-reinstall /artifacts/robyn*.whl && \
-            cd ~ && python -c 'import robyn'"
+          docker run --rm -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-alpine sh -c "\
+            pip install --force-reinstall /artifacts/robyn*.whl && python -c 'import robyn'"
