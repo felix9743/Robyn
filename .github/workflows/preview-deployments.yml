@@ -26,7 +26,7 @@ jobs:
       matrix:
         include:
           # macOS wheels
-          - runner: macos-15-intel
+          - runner: macos-15
             system: darwin
             target: x86_64
           - runner: macos-15
@@ -65,9 +65,16 @@ jobs:
       - name: Setup Rust cache
         uses: actions/cache@v4
         with:
-          path: target
+          path: |
+            target
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
           restore-keys: rust-${{ matrix.runner }}${{ matrix.libc && format('-{0}', matrix.libc) || '' }}
           key: rust-${{ matrix.runner }}${{ matrix.libc && format('-{0}', matrix.libc) || '' }}-${{ hashFiles('Cargo.lock') }}
+
+      # - name: make Cargo registry folder
+      #   run: mkdir -p /home/runner/.cargo/registry
+      #   if: runner.os == 'Linux'
 
       - name: Setup uv tool
         uses: astral-sh/setup-uv@v5
@@ -79,6 +86,7 @@ jobs:
         run: |
           os="${{ matrix.system || (matrix.libc && 'linux' || 'windows') }}-${{ matrix.target }}"
           v="${{ env.PYTHON_VERSIONS }}"; [[ $os == windows-aarch64 ]] && v=${v/3.10/}
+          echo PYTHON_VERSIONS=$v >> $GITHUB_ENV
 
           uv python install $(echo $v | sed "s/[^ ]*/&-$os/g")
 
@@ -90,19 +98,30 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{matrix.libc }}_${{ matrix.version }}
           container: quay.io/pypa/${{matrix.libc }}_${{ matrix.version }}_${{ matrix.target }}:latest
+          docker-options: -v /home/runner/.cargo/registry:/root/.cargo/registry
           args: ${{ env.maturin }} --release --strip --out dist
+
+      # - name: Fix Cargo registry folder permissions
+      #   run: sudo chown -R $USER /home/runner/.cargo/registry
+      #   if: runner.os == 'Linux'
 
       - name: Test wheels
         shell: bash
         run: |
           for v in ${{ env.PYTHON_VERSIONS }}; do
-            (
-              whl_path=$(realpath dist/robyn*cp$(echo $v | tr -d '.')*.whl)
-              venv_dir="$RUNNER_TEMP/venv-$v"; uv venv --python $v "$venv_dir"
+            echo "::group::Testing Python $v"
+            whl_path=$(realpath dist/robyn*cp$(echo $v | tr -d '.')*.whl)
+            venv_dir="$RUNNER_TEMP/venv-$v"; uv venv --python $v "$venv_dir"
 
-              cd $RUNNER_TEMP
-              uv pip install --python "$venv_dir" --force-reinstall "$whl_path"
-              uv run --python "$venv_dir" python -c "import robyn"
-              rm -rf "$venv_dir"
-            ) & done
-          wait
+            (cd $RUNNER_TEMP
+            uv pip install --python "$venv_dir" --force-reinstall "$whl_path"
+            uv run --python "$venv_dir" python -c "import robyn")
+            echo "::endgroup::"
+          done
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-${{ matrix.libc || matrix.target }}-wheels
+          path: dist/*.whl
+          retention-days: 2
