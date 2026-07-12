@@ -1,5 +1,4 @@
-# CI to release the project for Linux, Windows, and MacOS
-# The purpose of this action is to verify if the release builds are working or not.
+# CI to verify if the release builds are working or not.
 
 name: Preview Release
 
@@ -12,181 +11,135 @@ on:
     branches:
       - main
 
-env:
-  SCCACHE_GHA_RW_MODE: ${{ github.event_name == 'pull_request' && 'READ_ONLY' || 'READ_WRITE' }}
-
 permissions:
   contents: read
 
+env:
+  PYTHON_VERSIONS: "3.10 3.11 3.12 3.13 3.14"
+
 jobs:
-  macos:
+  macos-wheels:
     runs-on: macos-15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8.3.2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Setup Python
+        run: |
+          x86_64=""
+          for v in ${{ env.PYTHON_VERSIONS }}; do x86_64="$x86_64 ${v}-macos-x86_64"; done
+          uv python install ${{ env.PYTHON_VERSIONS }} $x86_64
+
+      - name: Cache Rust target
+        uses: actions/cache@v4
         with:
-          cache-python: "true"
-          activate-environment: "true"
-          python-version: ${{ matrix.python-version }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin aarch64-apple-darwin
-      - name: Configure sccache
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
-            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
-      - name: Build wheels - x86_64
+          path: target
+          key: cache-rust-macos-${{ hashFiles('Cargo.toml') }}
+          restore-keys: cache-rust-macos-
+
+      - name: Generate Maturin arguments
+        id: flags
+        shell: bash
+        run: |
+          FLAGS=""
+          for v in ${{ env.PYTHON_VERSIONS }}; do FLAGS="$FLAGS -i $v"; done
+          echo "py=$FLAGS" >> $GITHUB_OUTPUT
+
+      - name: Build Wheels (x86_64)
         uses: PyO3/maturin-action@v1
-        env:
-          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && 'sccache-macos-x86_64-3.12' || '' }}
-          SCCACHE_GHA_CACHE_FROM: sccache-macos-x86_64-
         with:
-          sccache: "true"
           target: x86_64
-          args: -i python --release --out dist
-      - name: Build wheels - aarch64
+          args: ${{ steps.flags.outputs.py }} --release --strip --out dist
+
+      - name: Build Wheels (aarch64)
         uses: PyO3/maturin-action@v1
-        env:
-          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && 'sccache-macos-aarch64-3.12' || '' }}
-          SCCACHE_GHA_CACHE_FROM: sccache-macos-aarch64-
         with:
-          sccache: "true"
           target: aarch64
-          args: -i python --release --out dist
-      - name: Test wheel
+          args: ${{ steps.flags.outputs.py }} --release --strip --out dist
+
+      - name: Test Wheels
         shell: bash
         run: |
-          uv pip install --force-reinstall dist/robyn*arm64.whl
-          cd ~ && python -c "import robyn"
+          for p in x86_64 aarch64; do
+            if [ "$p" == "x86_64" ]; then arch="x86_64"; else arch="arm64"; fi
+            for v in ${{ env.PYTHON_VERSIONS }}; do
+              uv pip install -p ${v}-macos-${p} --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*${arch}.whl
+              (cd ~ && uv run -p ${v}-macos-${p} python -c "import robyn")
+            done
+          done
 
-  windows:
+  other-wheels:
     runs-on: ${{ matrix.runner }}
+    name: "Build ${{ matrix.target }} wheels"
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x64, arm64]
-        exclude:
-          - target: arm64
-            python-version: "3.10"
         include:
-          - target: x64
-            runner: windows-2025
-            architecture: x64
-          - target: arm64
-            runner: windows-11-arm
-            architecture: arm64
+          # Windows wheels
+          - runner: windows-2022
+            target: x86_64
+          - runner: windows-11-arm
+            target: aarch64
+
+          # Manylinux wheels
+          - runner: ubuntu-24.04
+            target: x86_64
+            libc: manylinux
+            container: quay.io/pypa/manylinux_2_28_x86_64:latest
+          - runner: ubuntu-24.04-arm
+            target: aarch64
+            libc: manylinux
+            container: quay.io/pypa/manylinux_2_28_aarch64:latest
+
+          # Musllinux wheels
+          - runner: ubuntu-24.04
+            target: x86_64
+            libc: musllinux
+            container: quay.io/pypa/musllinux_1_2_x86_64:latest
+          - runner: ubuntu-24.04-arm
+            target: aarch64
+            libc: musllinux
+            container: quay.io/pypa/musllinux_1_2_aarch64:latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8.3.2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Setup Python
+        run: uv python install ${{ env.PYTHON_VERSIONS }}
+
+      - name: Cache Rust target
+        uses: actions/cache@v4
         with:
-          cache-python: "true"
-          activate-environment: "true"
-          python-version: ${{ matrix.python-version }}
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Configure sccache
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
-            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        env:
-          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && format('sccache-windows-{0}-3.12', matrix.target) || '' }}
-          SCCACHE_GHA_CACHE_FROM: sccache-windows-${{ matrix.target }}-
-        with:
-          sccache: "true"
-          target: ${{ matrix.target == 'arm64' && 'aarch64' || matrix.target }}
-          args: -i python --release --out dist
-      - name: Test wheel
+          path: target
+          restore-keys: cache-rust-${{ matrix.libc || matrix.runner }}-
+          key: cache-rust-${{ matrix.libc || matrix.runner }}-${{ hashFiles('Cargo.toml') }}
+
+      - name: Generate Maturin arguments
+        id: flags
         shell: bash
         run: |
-          uv pip install --force-reinstall dist/robyn*.whl
-          cd ~ && python -c "import robyn"
+          FLAGS=""
+          for v in ${{ env.PYTHON_VERSIONS }}; do FLAGS="$FLAGS -i $v"; done
+          echo "py=$FLAGS" >> $GITHUB_OUTPUT
 
-  manylinux:
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x86_64, aarch64]
-        include:
-          - target: x86_64
-            runner: ubuntu-24.04
-          - target: aarch64
-            runner: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure sccache
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
-            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
       - name: Build Wheels
         uses: PyO3/maturin-action@v1
-        env:
-          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && format('sccache-manylinux-{0}-3.12', matrix.target) || '' }}
-          SCCACHE_GHA_CACHE_FROM: sccache-manylinux-${{ matrix.target }}-
         with:
-          sccache: "true"
           target: ${{ matrix.target }}
-          args: --zig -i python${{ matrix.python-version }} --release --out dist
-          container: quay.io/pypa/manylinux_2_28_${{ matrix.target }}:latest
-          docker-options: >-
-            -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
-            -e ACTIONS_RESULTS_URL -e ACTIONS_RUNTIME_TOKEN
-            -e SCCACHE_GHA_RW_MODE
-          manylinux: manylinux_2_28
-      - name: Test wheel
-        run: |
-          docker run --rm -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-slim sh -c "\
-            pip install --force-reinstall /artifacts/robyn*.whl && python -c 'import robyn'"
+          container: ${{ matrix.container }}
+          manylinux: ${{ matrix.libc == 'manylinux' && 'manylinux_2_28' || 'musllinux_1_2' }}
+          args: ${{ steps.flags.outputs.py }} --release --strip --out dist
 
-  musllinux:
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x86_64, aarch64]
-        include:
-          - target: x86_64
-            runner: ubuntu-24.04
-          - target: aarch64
-            runner: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure sccache
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable("ACTIONS_RESULTS_URL", process.env.ACTIONS_RESULTS_URL || "");
-            core.exportVariable("ACTIONS_RUNTIME_TOKEN", process.env.ACTIONS_RUNTIME_TOKEN || "");
-      - name: Build Wheels
-        uses: PyO3/maturin-action@v1
-        env:
-          SCCACHE_GHA_CACHE_TO: ${{ matrix.python-version == '3.12' && format('sccache-musllinux-{0}-3.12', matrix.target) || '' }}
-          SCCACHE_GHA_CACHE_FROM: sccache-musllinux-${{ matrix.target }}-
-        with:
-          sccache: "true"
-          target: ${{ matrix.target }}
-          args: --zig -i python${{ matrix.python-version }} --release --out dist
-          container: quay.io/pypa/musllinux_1_2_${{ matrix.target }}:latest
-          docker-options: >-
-            -e SCCACHE_GHA_CACHE_TO -e SCCACHE_GHA_CACHE_FROM
-            -e ACTIONS_RESULTS_URL -e ACTIONS_RUNTIME_TOKEN
-            -e SCCACHE_GHA_RW_MODE
-          manylinux: musllinux_1_2
-      - name: Test wheel
+      - name: Test wheels
+        shell: bash
         run: |
-          docker run --rm -v ${{ github.workspace }}/dist:/artifacts python:${{ matrix.python-version }}-alpine sh -c "\
-            pip install --force-reinstall /artifacts/robyn*.whl && python -c 'import robyn'"
+          for v in ${{ env.PYTHON_VERSIONS }}; do
+            uv pip install -p $v --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*.whl
+            (cd ~ && uv run -p $v python -c "import robyn")
+          done
