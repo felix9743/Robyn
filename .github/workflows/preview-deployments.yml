@@ -33,10 +33,10 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Setup Python
+        shell: bash
         run: |
           uv python install ${{ env.PYTHON_VERSIONS }} \
-            $(echo "${{ env.PYTHON_VERSIONS }}" | sed 's/\S*/&-macos-x86_64/g')
-          uv python update-shell
+            $(echo "${{ env.PYTHON_VERSIONS }}" | sed "s/[^ ]*/&-macos-x86_64/g")
 
       - name: Cache Rust target
         uses: actions/cache@v4
@@ -50,20 +50,24 @@ jobs:
         shell: bash
         run: |
           FLAGS=""
-          for v in ${{ env.PYTHON_VERSIONS }}; do FLAGS="$FLAGS -i $v"; done
-          echo "py=$FLAGS" >> $GITHUB_OUTPUT
+          for v in ${{ env.PYTHON_VERSIONS }}; do FLAGS="$FLAGS -i $(uv python find ${v}-macos-x86_64)"; done
+          echo "py_x86_64=$FLAGS" >> $GITHUB_OUTPUT
+
+          FLAGS=""
+          for v in ${{ env.PYTHON_VERSIONS }}; do FLAGS="$FLAGS -i $(uv python find ${v}-macos-aarch64)"; done
+          echo "py_aarch64=$FLAGS" >> $GITHUB_OUTPUT
 
       - name: Build Wheels (x86_64)
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          args: ${{ steps.flags.outputs.py }} --release --strip --out dist
+          args: ${{ steps.flags.outputs.py_x86_64 }} --release --strip --out dist
 
       - name: Build Wheels (aarch64)
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
-          args: ${{ steps.flags.outputs.py }} --release --strip --out dist
+          args: ${{ steps.flags.outputs.py_aarch64 }} --release --strip --out dist
 
       - name: Test Wheels
         shell: bash
@@ -71,14 +75,19 @@ jobs:
           for p in x86_64 aarch64; do
             if [ "$p" == "x86_64" ]; then arch="x86_64"; else arch="arm64"; fi
             for v in ${{ env.PYTHON_VERSIONS }}; do
-              uv pip install --system --break-system-packages -p ${v}-macos-${p} --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*${arch}.whl
-              (cd ~ && uv run -p ${v}-macos-${p} python -c "import robyn")
+              uv venv --python ${v}-macos-${p} .venv
+              uv pip install --python .venv --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*${arch}.whl
+              (cd .. && uv run --python ./Robyn/.venv python -c "import robyn")
+              rm -rf .venv
             done
           done
 
   other-wheels:
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.libc || 'windows' }}-${{ matrix.target }}
+    env:
+      os: ${{ contains(matrix.runner, 'windows') && 'windows' || 'linux' }}
+      py: echo ${{ env.PYTHON_VERSIONS }} | sed "s/[^ ]*/&-${{ env.os }}-${{ matrix.target }}/g" | sed "s/3.10-windows-aarch64//g"
     strategy:
       fail-fast: false
       matrix:
@@ -117,10 +126,7 @@ jobs:
 
       - name: Setup Python
         shell: bash
-        run: |
-          uv python install $(echo "${{ env.PYTHON_VERSIONS }}" | \
-            sed "s/\S*/&-${{ contains(matrix.runner, 'windows') && 'windows' || 'linux' }}-${{ matrix.target }}/g")
-          uv python update-shell
+        run: uv python install ${{ env.py }}
 
       - name: Cache Rust target
         uses: actions/cache@v4
@@ -134,8 +140,9 @@ jobs:
         shell: bash
         run: |
           FLAGS=""
-          for v in ${{ env.PYTHON_VERSIONS }}; do FLAGS="$FLAGS -i $v"; done
-          echo "py=$FLAGS" >> $GITHUB_OUTPUT
+          for v in ${{ env.py }}; do
+            FLAGS="$FLAGS -i $(uv python find ${v}-${{ env.os }}-${{ matrix.target }})"
+          done; echo "py=$FLAGS" >> $GITHUB_OUTPUT
 
       - name: Build Wheels
         uses: PyO3/maturin-action@v1
@@ -148,7 +155,9 @@ jobs:
       - name: Test wheels
         shell: bash
         run: |
-          for v in ${{ env.PYTHON_VERSIONS }}; do
-            uv pip install --system --break-system-packages -p $v --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*.whl
-            (cd ~ && uv run -p $v python -c "import robyn")
+          for v in ${{ env.py }}; do
+            uv venv --python $v .venv
+            uv pip install --python .venv --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*.whl
+            (cd .. && uv run --python ./Robyn/.venv python -c "import robyn")
+            rm -rf .venv
           done
