@@ -34,10 +34,9 @@ jobs:
 
       - name: Setup Python
         run: |
-          x86_64=""
-          for v in ${{ env.PYTHON_VERSIONS }}; do x86_64="$x86_64 ${v}-macos-x86_64"; done
-          uv python install ${{ env.PYTHON_VERSIONS }} $x86_64
-          dirname "$(which python)" >> $GITHUB_PATH
+          uv python install ${{ env.PYTHON_VERSIONS }} \
+            $(echo "${{ env.PYTHON_VERSIONS }}" | sed 's/\S*/&-macos-x86_64/g')
+          uv python update-shell
 
       - name: Cache Rust target
         uses: actions/cache@v4
@@ -72,14 +71,14 @@ jobs:
           for p in x86_64 aarch64; do
             if [ "$p" == "x86_64" ]; then arch="x86_64"; else arch="arm64"; fi
             for v in ${{ env.PYTHON_VERSIONS }}; do
-              uv pip install --system -p ${v}-macos-${p} --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*${arch}.whl
+              uv pip install --system --break-system-packages -p ${v}-macos-${p} --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*${arch}.whl
               (cd ~ && uv run -p ${v}-macos-${p} python -c "import robyn")
             done
           done
 
   other-wheels:
     runs-on: ${{ matrix.runner }}
-    name: ${{ matrix.libc || "windows" }}-${{ matrix.target }}
+    name: ${{ matrix.libc || 'windows' }}-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
@@ -119,8 +118,9 @@ jobs:
       - name: Setup Python
         shell: bash
         run: |
-          uv python install ${{ env.PYTHON_VERSIONS }}
-          dirname "$(which python)" >> $GITHUB_PATH
+          uv python install $(echo "${{ env.PYTHON_VERSIONS }}" | \
+            sed "s/\S*/&-${{ contains(matrix.runner, 'windows') && 'windows' || 'linux' }}-${{ matrix.target }}/g")
+          uv python update-shell
 
       - name: Cache Rust target
         uses: actions/cache@v4
@@ -149,6 +149,6 @@ jobs:
         shell: bash
         run: |
           for v in ${{ env.PYTHON_VERSIONS }}; do
-            uv pip install --system -p $v --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*.whl
+            uv pip install --system --break-system-packages -p $v --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*.whl
             (cd ~ && uv run -p $v python -c "import robyn")
           done
