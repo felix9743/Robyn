@@ -1,4 +1,4 @@
-# CI to release the project for Linux, Windows, and MacOS
+# CI to release the project for Linux, Windows, and macOS.
 
 name: Release CI
 
@@ -16,7 +16,12 @@ env:
 
 jobs:
   macos-wheels:
-    runs-on: macos-15
+    runs-on: ${{ matrix.runner }}
+    name: macos-all-wheels
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +34,7 @@ jobs:
           x86_64=""
           for v in ${{ env.PYTHON_VERSIONS }}; do x86_64="$x86_64 ${v}-macos-x86_64"; done
           uv python install ${{ env.PYTHON_VERSIONS }} $x86_64
+          dirname "$(which python)" >> $GITHUB_PATH
 
       - name: Cache Rust target
         uses: actions/cache@v4
@@ -63,7 +69,7 @@ jobs:
           for p in x86_64 aarch64; do
             if [ "$p" == "x86_64" ]; then arch="x86_64"; else arch="arm64"; fi
             for v in ${{ env.PYTHON_VERSIONS }}; do
-              uv pip install -p ${v}-macos-${p} --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*${arch}.whl
+              uv pip install --system -p ${v}-macos-${p} --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*${arch}.whl
               (cd ~ && uv run -p ${v}-macos-${p} python -c "import robyn")
             done
           done
@@ -71,12 +77,12 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ runner.os }}
+          name: ${{ runner.os }}-all-wheels
           path: dist/*.whl
 
   other-wheels:
     runs-on: ${{ matrix.runner }}
-    name: "Build ${{ matrix.target }} wheels"
+    name: ${{ contains(matrix.runner, 'windows') && 'windows' || 'linux' }}-${{ matrix.libc || matrix.target }}-wheels
     strategy:
       fail-fast: false
       matrix:
@@ -114,7 +120,10 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Setup Python
-        run: uv python install ${{ env.PYTHON_VERSIONS }}
+        shell: bash
+        run: |
+          uv python install ${{ env.PYTHON_VERSIONS }}
+          dirname "$(which python)" >> $GITHUB_PATH
 
       - name: Cache Rust target
         uses: actions/cache@v4
@@ -143,14 +152,14 @@ jobs:
         shell: bash
         run: |
           for v in ${{ env.PYTHON_VERSIONS }}; do
-            uv pip install -p $v --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*.whl
+            uv pip install --system -p $v --force-reinstall dist/robyn*cp$(echo $v | tr -d '.')*.whl
             (cd ~ && uv run -p $v python -c "import robyn")
           done
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.libc || runner.os }}-${{ matrix.target }}
+          name: ${{ runner.os }}-${{ matrix.libc || matrix.target }}-wheels
           path: dist/*.whl
 
   release:
@@ -162,7 +171,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: wheels-*
           merge-multiple: true
 
       - name: Verify downloaded wheels
